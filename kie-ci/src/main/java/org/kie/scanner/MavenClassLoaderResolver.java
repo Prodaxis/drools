@@ -16,9 +16,18 @@
 package org.kie.scanner;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.security.ProtectionDomain;
@@ -64,7 +73,6 @@ public class MavenClassLoaderResolver implements ClassLoaderResolver {
 
         InternalKieModule internalKModule = (InternalKieModule)kmodule;
         Collection<ReleaseId> jarDependencies = internalKModule.getJarDependencies( DependencyFilter.COMPILE_FILTER );
-
         if (jarDependencies.isEmpty()) {
             return parent;
         }
@@ -88,8 +96,76 @@ public class MavenClassLoaderResolver implements ClassLoaderResolver {
             }
         }
 
+        try {
+        	ArrayList<File> parteorFiles = getAllParteorFiles();
+            if(null != parteorFiles){
+            	for (File file : parteorFiles) {
+                	urls.add( file.toURI().toURL() );
+                }
+            }	
+        }catch (Exception e) {
+            
+        }
+        
         internalKModule.setUnresolvedDependencies(unresolvedDeps);
         return new KieURLClassLoader(urls.toArray(new URL[urls.size()]), parent);
+    }
+    
+    public static String getInstallLocation() {
+		return System.getProperty("jboss.home.dir") + File.separator + "modules" + File.separator + "com" + File.separator + "prodaxis" + File.separator + "bpm" + File.separator + "main";
+	}
+    
+    public ArrayList<File> getAllParteorFiles(){
+    	String startingPoint = getInstallLocation();
+        String findPattern = "*.jar";
+        Path startingDir = Paths.get(startingPoint);
+        Finder theFinder = new Finder(findPattern);
+        try {
+			Files.walkFileTree(startingDir, theFinder);
+			return theFinder.myFileArray;
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return null;
+    }
+    
+    public static class Finder extends SimpleFileVisitor<Path>{
+        private final PathMatcher theMatcher;
+        ArrayList<File> myFileArray = new ArrayList<File>();
+
+        Finder(String pattern) {
+            theMatcher = FileSystems.getDefault().getPathMatcher("glob:"+pattern);
+        }
+
+        void find (Path file){
+            Path name = file.getFileName();
+            if (name != null && theMatcher.matches(name)){
+                myFileArray.add(file.toFile());
+            }
+        }
+
+        File[] returnFileArray(){
+            File[] x = new File[myFileArray.size()];
+            return myFileArray.toArray(x);
+        }
+
+        @Override
+        public FileVisitResult visitFile (Path file,BasicFileAttributes attrs){
+            find(file);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory (Path dir, BasicFileAttributes attrs){
+            find(dir);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed (Path file, IOException exc) {
+            System.err.println(exc);
+            return FileVisitResult.CONTINUE;
+        }
     }
 
 }
